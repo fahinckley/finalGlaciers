@@ -1,8 +1,12 @@
 %--------------------------------
 % Simulation of an eroding valley under a glacier
+%   Starts at steady-state glacier shape from original glacier assigment
+%   Approximates changes in subglacial water network by changes in 
+%       bulk hydraulic conductivity
+%   Temperature forcing is handled by oscillating melt input
 %--------------------------------
 % Franklin Hinckley
-% 6 April 2016
+% 25 April 2016
 %--------------------------------
 %
 %--------------------------------
@@ -23,37 +27,36 @@ edot0 = 0.0001;  % erosion coefficient []
 bmax  = 3;       % maximum accumulaton [m/yr]
 
 %% Constants for subglacial drainage
-k = 1000/315569.26; % initial hydraulic conductivity [m/yr]
+k = 4e-5*86400 ; % initial hydraulic conductivity [m/yr] [Fountain and Walder
 p = 0.05; % porosity of glacier
-scl_flow = 1e-5; % scale factor for conductivity as a function of water flow
-scl_slide = 1e-16; % scale factor for conductivity as a function of sliding
-scl_close = 1e-18; % scale factor for conductivity as a function of ice thickness
+scl_flow = 1e-8;   % scale factor for conductivity as a function of water flow
+scl_slide = 1e-9; % scale factor for conductivity as a function of sliding
+scl_close = 1e-16; % scale factor for conductivity as a function of ice thickness
 
 %% Set up initial valley shape
-dx = 1000; % [m]
+dx = 250; % [m]
 len = 200*1000; % [m]
 x = 0:dx:len;
 
-SR = 20/1000;  % [m/km]
+SR = 20/1000;  % slope [m/km]
 
 zMax = 3000; % [m]
 zR = zMax - SR*x;
 
 %% Time array
-dt   = 1/365/24; % [yr]
-tSim = 5;    % [yr]
+dt   = 1/365/24/4; % [yr]
+tSim = 10;    % [yr]
 t = 0:dt:tSim;
 
 P_ELA = 1; % period for variations in ELA [yr]
-P_W   = 1;   % period for variations in water table [yr]
 
 %% Initial glacier shape
-load Hsteady
-H = Hsteady'; % steady state glacier from original code
+load Hsteady250
+H = Hsteady250'; % steady state glacier from original code
 
 %% Allocate output
 % Specify how often to save
-saveInd = 100;
+saveInd = 1000;
 
 % Allocate output
 zR_S  = zeros(length(x)  , floor(length(t)/saveInd));
@@ -62,10 +65,12 @@ HW_S  = zeros(length(x)  , floor(length(t)/saveInd));
 k_S   = zeros(length(x)  , floor(length(t)/saveInd));
 usl_S = zeros(length(x)-1, floor(length(t)/saveInd));
 Q_S   = zeros(length(x)+1, floor(length(t)/saveInd));
-QW_S  = zeros(length(x)+1, floor(length(t)/saveInd));
-m_S  = zeros(length(x), floor(length(t)/saveInd));
+QW_S  = zeros(length(x), floor(length(t)/saveInd));
+m_S   = zeros(length(x), floor(length(t)/saveInd));
 ELA_S = zeros(floor(length(t)/saveInd),1);
 V     = zeros(floor(length(t)/saveInd),1);
+VW    = zeros(floor(length(t)/saveInd),1);
+hydro = zeros(floor(length(t)/saveInd),1);
 
 % Assign initial values
 zR_S(:,1) = zR;
@@ -74,8 +79,10 @@ Q         = zeros(length(x)+1,1);
 k         = k*ones(1,length(x));
 % HW        = H - 175;
 %HW = zeros(size(H));
-HW = 100*ones(size(H));
-
+% HW = 100*ones(size(H));
+% 
+% HW = (H-100).*(HW >= (H-100)) + HW.*(HW < (H-100));
+HW = H - 75;
 HW = HW.*(HW >= 0);
 
 %% Main loop
@@ -88,7 +95,7 @@ for ii = 1:length(t)
     z = zR + H;
         
     % Compute current ELA
-    ELA = 2500 - 1500*sin((2*pi/P_ELA)*t(ii));
+    ELA = 2500;
     
     % Evaluate net accumulation/ablation 
     b = gamma*(z - ELA);
@@ -102,19 +109,14 @@ for ii = 1:length(t)
     % Get box-centered heights
     Hm = (H(1:end-1) + H(2:end))/2;
     HWm = (HW(1:end-1) + HW(2:end))/2;
+    HWm = Hm.*(HWm >= Hm) + HWm.*(HWm < Hm);
     
     % Compute base slope
     dzRdx = diff(zR)/dx;
     
     % Compute basal shear stress [Pa]
     tauB = rhoI*g*Hm.*dzRdx;
-    
-    % Compute water table level
-    %Hwtl = 65 + 10*sin((2*pi/P_W)*t(ii));
-    %Hwtl = 75;
-    %Hw = Hm - Hwtl;
-    %Hw = Hw.*(Hw > 0);
-    
+        
     % Compute sliding speed  
     Ne = rhoI*g*Hm - rhoW*g*HWm;
     usl = zeros(size(Hm));
@@ -144,43 +146,43 @@ for ii = 1:length(t)
     H = H.*(H >= 0);
     
     % Determine melt rate
-    m = b.*(H > 0)*dt; % assumes no sublimation
+    m = 2*sin((2*pi/P_ELA)*t(ii))*0.06*(3.5 - z/1000).*(H > 0);
     m = -m.*(m < 0); % only negative change in height is melt and fix sign
     m = (rhoI/rhoW)*m; % scale volume by relative density of ice/water 
     m = m*(1/p); % height scaled by porosity
+    mm = (m(1:end-1) + m(2:end))/2;
     
     % Water table elevation
     zW = zR + HW; 
-    zW = z.*(zW >= z) + zW.*(zW < z);
+    zW = z.*(zW >= z) + zW.*(zW < z); % limit to glacier surface height
     
     % Head gradient
     dzWdx = diff(zW)/dx;
     
     % Flux law for water 
     km = (k(1:end-1) + k(2:end))/2;
-    Q_W = -km.*dzWdx;
+    uW = -km.*dzWdx .*sqrt(g*(HWm*p));
+    Q_W = uW.*(HWm*p);
     
     % Fix end conditions for water flux
-    Q_W = [0 Q_W Q_W(end)];
-    
-    % Freeze sections above ELA
-    %Q_W = Q_W.*(z <= ELA);
+    Q_W = [0 Q_W].*(H > 0);
     
     % Flux gradient
     dQWdx = diff(Q_W)/dx;
     
     % Change in water thickness
-    dHWdt = dQWdx + m;
+    dHWdt = dQWdx + mm;
     
     % Update water cells
-    HW = HW + dHWdt*dt;
+    HW = [HW(1:end-1) + dHWdt*dt HW(end) + dHWdt(end)*dt];
     HW = HW.*(HW > 0); % remove negative heights
     
     % Restrict water height to glacier thickness
     HW = H.*(HW >= H) + HW.*(HW < H);
     
     % Determine change in hydraulic conductivity
-    dk_flow  =  scl_flow  * Q_W(1:end-1);
+    dk_flow  =  scl_flow  * Q_W;
+    dk_flow  =  dk_flow.*(dk_flow >= 0);
     dk_slide =  scl_slide * [0 usl];
     dk_close = -scl_close * H.^3;
     dk = dk_flow + dk_slide + dk_close;
@@ -202,6 +204,7 @@ for ii = 1:length(t)
     if mod(ii,saveInd) == 1
         % Compute ice volume and save
         V(jj) = trapz(x,H);
+        Vw(jj) = trapz(x,HW);
 
         % Save output 
         ELA_S(jj)   = ELA;
@@ -213,6 +216,7 @@ for ii = 1:length(t)
         usl_S(:,jj) = usl';
         k_S(:,jj)   = k';
         m_S(:,jj)   = m';
+        hydro(jj)   = Q_W(find(H > 0,1,'last')-1);
         
         % Increment counter
         jj = jj + 1;
@@ -231,6 +235,7 @@ progressbar(1)
 % Animation
 if 1 % set to 1 to enable animation or 0 to disable
 figure
+set(gcf,'Position',[100 100 1200 600])
 M = [];
 for ii = 1:floor(length(t)/saveInd)
     % Find ELA position
@@ -276,43 +281,43 @@ for ii = 1:floor(length(t)/saveInd)
     % ELA position marker
     plot([ELApos ELApos],[0 1e5],'--b')
     hold off
-    ylim([0 1e5])
+    %ylim([0 1e5])
     ylabel('Flux [m^3/yr]')
     xlabel('Position [km]')
     
     % Sliding speed
     subplot(3,2,4)
     plot(x/1000,[0; usl_S(:,ii)])
-    ylabel('Sliding Speed [m/yr]')
+    ylabel('Sliding [m/yr]')
     xlabel('Position [km]')
     
     % Conductivity
     subplot(3,2,5)
     plot(x/1000,k_S(:,ii))
-    ylabel('Conductivity [m/s]')
+    ylabel('Conductivity [m/yr]')
     xlabel('Position [km]')
     %ylim([0 5e-3])
     
     % Water flux
     subplot(3,2,6)
-    plot(x/1000,QW_S(2:end,ii))
+    plot(x/1000,QW_S(:,ii))
     ylabel('Flux [m^3/yr]')
     xlabel('Position [km]')
     %ylim([0 5e-5])
     
     % Save frame
-    %M = [M getframe(gcf)];
+    M = [M getframe(gcf)];
     pause(0.01)    
 end
 end
 
 % Make movie
-% v = VideoWriter('glacierWater.m4v','MPEG-4');
-% open(v)
-% for ii = 1:length(M)
-%     writeVideo(v,M(ii))
-% end
-% close(v)
+v = VideoWriter('glacier.m4v','MPEG-4');
+open(v)
+for ii = 1:length(M)
+    writeVideo(v,M(ii))
+end
+close(v)
 
 % Peak sliding speed
 figure
@@ -345,18 +350,16 @@ ylabel('Conductivity [m/yr]')
 xlabel('Position [km]')
 title('Min/Max Conductivity')
 
-% Volume vs time
-Veq = (1-(1/exp(1)))*V(end); % 1 - (1/e) of equilibrium volume
-eqInd = find(V > Veq,1,'first');
-teq = t(eqInd); % time to Veq
+% Hydrograph
 figure
-hold on
-plot(t(1:saveInd:end),V)
-%plot([t(1) t(end)],[Veq Veq],'--k')
-%plot([teq teq],[0 10e7],'--k')
-hold off
+plot(t(1:saveInd:end),hydro)
 xlabel('Time [yr]')
-ylabel('Ice Volume [m^3]')
-ylim([0 1e8])
-%tH = text('String',['t_{eq}: ' num2str(teq,4) ' yr']);
-%tH.Position = [teq+50 1e7];
+ylabel('Flow [m^3/yr]')
+title('Hydrograph')
+
+% Volume of water
+figure
+plot(t(1:saveInd:end),Vw)
+xlabel('Time [yr]')
+ylabel('Volume [m^3]')
+title('Water Volume')
