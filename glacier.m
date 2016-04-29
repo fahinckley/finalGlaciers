@@ -27,28 +27,26 @@ edot0 = 0.0001;  % erosion coefficient []
 bmax  = 3;       % maximum accumulaton [m/yr]
 
 %% Constants for subglacial drainage
-k = 4e-5*86400 ; % initial hydraulic conductivity [m/yr] [Fountain and Walder
-p = 0.05; % porosity of glacier
-scl_flow = 1e-8;   % scale factor for conductivity as a function of water flow
-scl_slide = 1e-9; % scale factor for conductivity as a function of sliding
-scl_close = 1e-16; % scale factor for conductivity as a function of ice thickness
+k = 4e-5*86400 ;   % initial hydraulic conductivity [m/yr] [Fountain and Walder]
+p = 0.05;          % porosity of glacier
+scl_flow  = 1e-7;  % scale factor for conductivity as a function of water flow
+scl_slide = 1e-9;  % scale factor for conductivity as a function of sliding
+scl_close = 1e-14; % scale factor for conductivity as a function of ice thickness
 
 %% Set up initial valley shape
-dx = 250; % [m]
+dx = 250;       % [m]
 len = 200*1000; % [m]
 x = 0:dx:len;
 
-SR = 20/1000;  % slope [m/km]
+SR = 20/1000;  % slope [m/m]
 
 zMax = 3000; % [m]
 zR = zMax - SR*x;
 
 %% Time array
 dt   = 1/365/24/4; % [yr]
-tSim = 10;    % [yr]
-t = 0:dt:tSim;
-
-P_ELA = 1; % period for variations in ELA [yr]
+tSim = 10;         % [yr]
+t    = 0:dt:tSim;
 
 %% Initial glacier shape
 load Hsteady250
@@ -65,8 +63,8 @@ HW_S  = zeros(length(x)  , floor(length(t)/saveInd));
 k_S   = zeros(length(x)  , floor(length(t)/saveInd));
 usl_S = zeros(length(x)-1, floor(length(t)/saveInd));
 Q_S   = zeros(length(x)+1, floor(length(t)/saveInd));
-QW_S  = zeros(length(x), floor(length(t)/saveInd));
-m_S   = zeros(length(x), floor(length(t)/saveInd));
+QW_S  = zeros(length(x)  , floor(length(t)/saveInd));
+m_S   = zeros(length(x)  , floor(length(t)/saveInd));
 ELA_S = zeros(floor(length(t)/saveInd),1);
 V     = zeros(floor(length(t)/saveInd),1);
 VW    = zeros(floor(length(t)/saveInd),1);
@@ -77,11 +75,7 @@ zR_S(:,1) = zR;
 H_S(:,1)  = H;
 Q         = zeros(length(x)+1,1);
 k         = k*ones(1,length(x));
-% HW        = H - 175;
-%HW = zeros(size(H));
-% HW = 100*ones(size(H));
-% 
-% HW = (H-100).*(HW >= (H-100)) + HW.*(HW < (H-100));
+
 HW = H - 75;
 HW = HW.*(HW >= 0);
 
@@ -146,7 +140,7 @@ for ii = 1:length(t)
     H = H.*(H >= 0);
     
     % Determine melt rate
-    m = 2*sin((2*pi/P_ELA)*t(ii))*0.06*(3.5 - z/1000).*(H > 0);
+    m = 2*sin((2*pi/1)*t(ii))*0.06*(3.5 - z/1000).*(H > 0);
     m = -m.*(m < 0); % only negative change in height is melt and fix sign
     m = (rhoI/rhoW)*m; % scale volume by relative density of ice/water 
     m = m*(1/p); % height scaled by porosity
@@ -166,6 +160,12 @@ for ii = 1:length(t)
     
     % Fix end conditions for water flux
     Q_W = [0 Q_W].*(H > 0);
+    
+    % Check for freezing of channels
+%     fc = sin(2*pi*t(ii));
+%     if fc < 0
+%         Q_W = zeros(size(Q_W));
+%     end
     
     % Flux gradient
     dQWdx = diff(Q_W)/dx;
@@ -306,18 +306,18 @@ for ii = 1:floor(length(t)/saveInd)
     %ylim([0 5e-5])
     
     % Save frame
-    M = [M getframe(gcf)];
+%     M = [M getframe(gcf)];
     pause(0.01)    
 end
 end
 
 % Make movie
-v = VideoWriter('glacier.m4v','MPEG-4');
-open(v)
-for ii = 1:length(M)
-    writeVideo(v,M(ii))
-end
-close(v)
+% v = VideoWriter('glacier.m4v','MPEG-4');
+% open(v)
+% for ii = 1:length(M)
+%     writeVideo(v,M(ii))
+% end
+% close(v)
 
 % Peak sliding speed
 figure
